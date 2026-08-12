@@ -1,11 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from PyInstaller.utils.hooks import collect_data_files
+
+ttkbootstrap_datas = collect_data_files('ttkbootstrap', include_py_files=False)
 
 a = Analysis(
     ['loop_video_suite.py'],
     pathex=[],
     binaries=[('C:\\Users\\toand\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg.Essentials_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1.1-essentials_build\\bin\\ffmpeg.exe', '.'), ('C:\\Users\\toand\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg.Essentials_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1.1-essentials_build\\bin\\ffprobe.exe', '.')],
-    datas=[],
+    datas=ttkbootstrap_datas,
     hiddenimports=['video_loop_tool', 'audio_full_tool'],
     hookspath=[],
     hooksconfig={},
