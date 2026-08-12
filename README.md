@@ -11,6 +11,10 @@ Giao diện Mint Workspace có Light/Dark Mode và tự nhớ lựa chọn gần
 `%APPDATA%\LoopVideoSuite\settings.json`. Chỉ một tab được phép mã hóa tại một
 thời điểm để tránh hai tác vụ tranh GPU, ổ đĩa và thư mục tạm.
 
+Giao diện sử dụng `ttkbootstrap` với hai theme tùy chỉnh `mint-light` và
+`mint-dark`, gồm toggle NVENC, nút outline, tiến trình striped và trạng thái
+focus/disabled nhất quán.
+
 ## Mini Tool Loop Video
 
 Chạy `run_video_loop.bat` hoặc `python video_loop_tool.py`. Tool cần `ffmpeg` và

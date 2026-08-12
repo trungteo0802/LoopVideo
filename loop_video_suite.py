@@ -7,7 +7,10 @@ import tempfile
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox
+
+import ttkbootstrap as ttk
+from ttkbootstrap.style import Colors, ThemeDefinition
 
 from audio_full_tool import AUDIO_EXTENSIONS
 from video_loop_tool import FFmpegLoopEngine, VIDEO_EXTENSIONS, find_ffmpeg_tools, format_seconds
@@ -25,6 +28,31 @@ DARK = {
     "accent": "#42C795", "accent_text": "#07120D", "warning": "#F59E0B",
     "success": "#6DE2B1", "log": "#0B100D",
 }
+
+
+def mint_theme(name: str, colors: dict[str, str], mode: str) -> ThemeDefinition:
+    return ThemeDefinition(
+        name=name,
+        mode=mode,
+        colors=Colors(
+            primary=colors["accent"],
+            secondary=colors["muted"],
+            success=colors["success"],
+            info="#2689A8" if mode == "light" else "#55B7D1",
+            warning=colors["warning"],
+            danger="#C2413B" if mode == "light" else "#F07972",
+            light=colors["surface"],
+            dark=colors["text"],
+            bg=colors["bg"],
+            fg=colors["text"],
+            selectbg=colors["accent"],
+            selectfg=colors["accent_text"],
+            border=colors["border"],
+            inputfg=colors["text"],
+            inputbg=colors["field"],
+            active=colors["border"],
+        ),
+    )
 
 
 class SettingsStore:
@@ -139,25 +167,25 @@ class LoopTab(ProcessingTab):
         row2 = ttk.Frame(left, style="Panel.TFrame"); row2.pack(fill="x", pady=(12, 0))
         self._spin(row2, "Hòa trộn (giây)", self.fade, .1, 3, .1, "left")
         self._spin(row2, "Bitrate (Mbps)", self.bitrate, 1, 100, .5, "left", (10, 0))
-        ttk.Checkbutton(left, text="Dùng GPU NVIDIA NVENC", variable=self.use_gpu).pack(anchor="w", pady=(18, 8))
+        ttk.Checkbutton(left, text="Dùng GPU NVIDIA NVENC", variable=self.use_gpu, bootstyle="success-round-toggle").pack(anchor="w", pady=(18, 8))
         ttk.Label(left, textvariable=self.size_estimate, style="Estimate.TLabel").pack(fill="x", pady=8, ipady=10)
         ttk.Label(left, text="Thư mục xuất", style="Panel.TLabel").pack(anchor="w", pady=(10, 4))
         ttk.Entry(left, textvariable=self.output_dir).pack(fill="x", ipady=7)
-        ttk.Button(left, text="Chọn thư mục xuất", command=self._choose_output).pack(fill="x", pady=(6, 0), ipady=4)
-        self.start_button = ttk.Button(left, text="BẮT ĐẦU LOOP", style="Primary.TButton", command=self._start)
+        ttk.Button(left, text="Chọn thư mục xuất", command=self._choose_output, bootstyle="secondary-outline").pack(fill="x", pady=(6, 0), ipady=4)
+        self.start_button = ttk.Button(left, text="BẮT ĐẦU LOOP", style="Primary.TButton", command=self._start, bootstyle="success")
         self.start_button.pack(fill="x", pady=(20, 7), ipady=8)
-        ttk.Button(left, text="DỪNG TÁC VỤ", command=self.stop).pack(fill="x", ipady=6)
+        ttk.Button(left, text="DỪNG TÁC VỤ", command=self.stop, bootstyle="danger-outline").pack(fill="x", ipady=6)
 
         header = ttk.Frame(right, style="Panel.TFrame"); header.pack(fill="x")
         ttk.Label(header, text="Danh sách video", style="Heading.TLabel").pack(side="left")
         ttk.Label(header, textvariable=self.status, style="Status.TLabel").pack(side="right")
         actions = ttk.Frame(right, style="Panel.TFrame"); actions.pack(fill="x", pady=(14, 10))
-        ttk.Button(actions, text="+ Thêm video", style="Primary.TButton", command=self._add_files).pack(side="left", padx=(0, 7))
-        ttk.Button(actions, text="Nạp thư mục", command=self._add_folder).pack(side="left", padx=7)
-        ttk.Button(actions, text="Xóa danh sách", command=self._clear).pack(side="left", padx=7)
+        ttk.Button(actions, text="+ Thêm video", style="Primary.TButton", command=self._add_files, bootstyle="success").pack(side="left", padx=(0, 7))
+        ttk.Button(actions, text="Nạp thư mục", command=self._add_folder, bootstyle="secondary-outline").pack(side="left", padx=7)
+        ttk.Button(actions, text="Xóa danh sách", command=self._clear, bootstyle="danger-outline").pack(side="left", padx=7)
         self.file_list = tk.Listbox(right, relief="flat", highlightthickness=1, height=12)
         self.file_list.pack(fill="both", expand=True, pady=(0, 12))
-        self.progress = ttk.Progressbar(right, mode="determinate")
+        self.progress = ttk.Progressbar(right, mode="determinate", bootstyle="success-striped")
         self.progress.pack(fill="x", pady=(0, 10), ipady=3)
         self.log = tk.Text(right, height=8, relief="flat", state="disabled", wrap="word")
         self.log.pack(fill="both", expand=True)
@@ -261,26 +289,26 @@ class AudioTab(ProcessingTab):
         row = ttk.Frame(left, style="Panel.TFrame"); row.pack(fill="x", pady=(12, 0))
         self._spin(row, "Hòa trộn", self.fade, .1, 3, .1, "left")
         self._spin(row, "Bitrate", self.bitrate, 1, 100, .5, "left", (10, 0))
-        ttk.Checkbutton(left, text="Dùng GPU NVIDIA NVENC", variable=self.use_gpu).pack(anchor="w", pady=(17, 5))
+        ttk.Checkbutton(left, text="Dùng GPU NVIDIA NVENC", variable=self.use_gpu, bootstyle="success-round-toggle").pack(anchor="w", pady=(17, 5))
         ttk.Label(left, text="Tự nhận intro theo thư mục kênh, sau đó loop video minh họa đến hết lời thoại.", style="Help.TLabel", wraplength=310).pack(fill="x", pady=(8, 4))
-        self.start_button = ttk.Button(left, text="TẠO VIDEO _FULL", style="Primary.TButton", command=self._start); self.start_button.pack(fill="x", pady=(20, 7), ipady=8)
-        ttk.Button(left, text="DỪNG TÁC VỤ", command=self.stop).pack(fill="x", ipady=6)
+        self.start_button = ttk.Button(left, text="TẠO VIDEO _FULL", style="Primary.TButton", command=self._start, bootstyle="success"); self.start_button.pack(fill="x", pady=(20, 7), ipady=8)
+        ttk.Button(left, text="DỪNG TÁC VỤ", command=self.stop, bootstyle="danger-outline").pack(fill="x", ipady=6)
         header = ttk.Frame(right, style="Panel.TFrame"); header.pack(fill="x")
         ttk.Label(header, text="Batch audio lời thoại", style="Heading.TLabel").pack(side="left")
         ttk.Label(header, textvariable=self.status, style="Status.TLabel").pack(side="right")
         actions = ttk.Frame(right, style="Panel.TFrame"); actions.pack(fill="x", pady=(14, 10))
-        ttk.Button(actions, text="+ Thêm audio", style="Primary.TButton", command=self._add_audio).pack(side="left", padx=(0, 7))
-        ttk.Button(actions, text="Nạp thư mục audio", command=self._add_audio_folder).pack(side="left", padx=7)
-        ttk.Button(actions, text="Xóa danh sách", command=self._clear).pack(side="left", padx=7)
+        ttk.Button(actions, text="+ Thêm audio", style="Primary.TButton", command=self._add_audio, bootstyle="success").pack(side="left", padx=(0, 7))
+        ttk.Button(actions, text="Nạp thư mục audio", command=self._add_audio_folder, bootstyle="secondary-outline").pack(side="left", padx=7)
+        ttk.Button(actions, text="Xóa danh sách", command=self._clear, bootstyle="danger-outline").pack(side="left", padx=7)
         self.audio_list = tk.Listbox(right, relief="flat", highlightthickness=1, height=12); self.audio_list.pack(fill="both", expand=True, pady=(0, 12))
-        self.progress = ttk.Progressbar(right, mode="determinate"); self.progress.pack(fill="x", pady=(0, 10), ipady=3)
+        self.progress = ttk.Progressbar(right, mode="determinate", bootstyle="success-striped"); self.progress.pack(fill="x", pady=(0, 10), ipady=3)
         self.log = tk.Text(right, height=8, relief="flat", state="disabled", wrap="word"); self.log.pack(fill="both", expand=True)
 
     def _path(self, parent, label, variable, command) -> None:
         ttk.Label(parent, text=label, style="Panel.TLabel").pack(anchor="w", pady=(9, 4))
         row = ttk.Frame(parent, style="Panel.TFrame"); row.pack(fill="x")
         ttk.Entry(row, textvariable=variable).pack(side="left", fill="x", expand=True, ipady=7)
-        ttk.Button(row, text="Chọn", command=command).pack(side="left", padx=(6, 0), ipady=4)
+        ttk.Button(row, text="Chọn", command=command, bootstyle="secondary-outline").pack(side="left", padx=(6, 0), ipady=4)
 
     def _spin(self, parent, label, variable, start, end, increment=1, side="left", padx=0) -> None:
         box = ttk.Frame(parent, style="Panel.TFrame"); box.pack(side=side, fill="x", expand=True, padx=padx)
@@ -370,13 +398,14 @@ class AudioTab(ProcessingTab):
         except Exception as error: self.events.put(("error", str(error)))
 
 
-class LoopVideoSuiteApp(tk.Tk):
+class LoopVideoSuiteApp(ttk.Window):
     def __init__(self) -> None:
-        super().__init__()
-        self.title("Loop Video Suite")
-        self.geometry("1480x900"); self.minsize(1100, 720); self.option_add("*Font", "{Segoe UI} 10")
+        super().__init__(title="Loop Video Suite", themename="litera", size=(1480, 900), minsize=(1100, 720), high_dpi=True)
+        self.option_add("*Font", "{Segoe UI} 10")
         self.store = SettingsStore(); self.theme_name = self.store.load_theme(); self.active_tab: ProcessingTab | None = None
-        self.style = ttk.Style(self); self.style.theme_use("clam")
+        for definition in (mint_theme("mint-light", LIGHT, "light"), mint_theme("mint-dark", DARK, "dark")):
+            if definition.name not in self.style.theme_names():
+                self.style.register_theme(definition)
         self._build(); self.apply_theme(); self.protocol("WM_DELETE_WINDOW", self._close)
 
     def _build(self) -> None:
@@ -389,7 +418,7 @@ class LoopVideoSuiteApp(tk.Tk):
         ttk.Label(title, text="Mint Workspace · Batch video production", style="Subtitle.TLabel").pack(anchor="w")
         self.ffmpeg_status = tk.StringVar(value="FFmpeg đang kiểm tra...")
         ttk.Label(self.header, textvariable=self.ffmpeg_status, style="HeaderStatus.TLabel").pack(side="right", padx=(14, 0))
-        self.theme_button = ttk.Button(self.header, command=self.toggle_theme); self.theme_button.pack(side="right", ipady=5)
+        self.theme_button = ttk.Button(self.header, command=self.toggle_theme, bootstyle="secondary-outline"); self.theme_button.pack(side="right", ipady=5)
         ffmpeg, ffprobe = find_ffmpeg_tools(); self.ffmpeg_status.set("FFmpeg + GPU: Sẵn sàng" if ffmpeg and ffprobe else "FFmpeg: Chưa tìm thấy")
         self.notebook = ttk.Notebook(self, style="Mint.TNotebook"); self.notebook.pack(fill="both", expand=True, padx=18, pady=(0, 18))
         self.loop_tab = LoopTab(self.notebook, self); self.audio_tab = AudioTab(self.notebook, self)
@@ -398,6 +427,7 @@ class LoopVideoSuiteApp(tk.Tk):
     def apply_theme(self) -> None:
         c = LIGHT if self.theme_name == "light" else DARK; self.configure(bg=c["bg"])
         s = self.style
+        s.theme_use("mint-light" if self.theme_name == "light" else "mint-dark")
         s.configure(".", background=c["bg"], foreground=c["text"], fieldbackground=c["field"], bordercolor=c["border"], lightcolor=c["border"], darkcolor=c["border"], focuscolor=c["accent"])
         s.configure("App.TFrame", background=c["bg"]); s.configure("Header.TFrame", background=c["surface"]); s.configure("Panel.TFrame", background=c["surface"], relief="flat")
         s.configure("TLabel", background=c["bg"], foreground=c["text"]); s.configure("Panel.TLabel", background=c["surface"], foreground=c["text"])
