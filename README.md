@@ -1,5 +1,11 @@
 # VEO ABSTRACT BACKGROUND PROMPT FACTORY
 
+## Loop Video Suite (ban day du)
+
+Chạy `run_loop_video_suite.bat` hoặc `python loop_video_suite.py` để mở màn hình
+chính. Bản Suite giữ nguyên toàn bộ Mini Tool Loop Video cũ và bổ sung chức năng
+Audio + Video minh họa dưới dạng một mục riêng, không thay thế quy trình cũ.
+
 ## Mini Tool Loop Video
 
 Chạy `run_video_loop.bat` hoặc `python video_loop_tool.py`. Tool cần `ffmpeg` và
