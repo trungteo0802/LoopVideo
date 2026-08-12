@@ -121,7 +121,8 @@ class FFmpegLoopEngine:
             raise ValueError(f"Video quá ngắn để hòa trộn: {source.name}")
         middle_end = duration - fade
         graph = (
-            f"[0:v]fps=30,scale=trunc(iw/2)*2:trunc(ih/2)*2,split=3[a][b][c];"
+            "[0:v]fps=30,scale=1920:1080:force_original_aspect_ratio=decrease,"
+            "pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,split=3[a][b][c];"
             f"[a]trim=start={fade}:end={middle_end},setpts=PTS-STARTPTS[mid];"
             f"[b]trim=start={middle_end}:end={duration},setpts=PTS-STARTPTS[tail];"
             f"[c]trim=start=0:end={fade},setpts=PTS-STARTPTS[head];"
@@ -170,6 +171,44 @@ class FFmpegLoopEngine:
         command = [
             self.ffmpeg, "-y", "-stream_loop", "-1", "-i", str(cycle),
             "-t", str(target_seconds), "-c", "copy", "-an", "-movflags", "+faststart", str(output),
+        ]
+        self._run(command)
+
+    def normalize_intro(self, source: Path, destination: Path, max_duration: float) -> float:
+        duration = min(self.duration(source), max_duration)
+        graph = (
+            "[0:v]fps=30,scale=1920:1080:force_original_aspect_ratio=decrease,"
+            "pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[outv]"
+        )
+        command = [
+            self.ffmpeg, "-y", "-i", str(source), "-t", f"{duration:.3f}",
+            "-filter_complex", graph, "-map", "[outv]",
+        ]
+        self._run(command + self._video_options() + [str(destination)])
+        return duration
+
+    def concat_video_parts(self, parts: list[Path], destination: Path) -> None:
+        list_file = destination.with_suffix(".concat.txt")
+        lines = []
+        for path in parts:
+            escaped = str(path.resolve()).replace("'", "'\\''")
+            lines.append(f"file '{escaped}'")
+        list_file.write_text("\n".join(lines), encoding="utf-8")
+        try:
+            command = [
+                self.ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", str(list_file),
+                "-c", "copy", "-an", "-movflags", "+faststart", str(destination),
+            ]
+            self._run(command)
+        finally:
+            list_file.unlink(missing_ok=True)
+
+    def mux_narration(self, video: Path, audio: Path, destination: Path, duration: float) -> None:
+        command = [
+            self.ffmpeg, "-y", "-i", str(video), "-i", str(audio),
+            "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy",
+            "-c:a", "aac", "-b:a", "192k", "-shortest", "-t", f"{duration:.3f}",
+            "-movflags", "+faststart", str(destination),
         ]
         self._run(command)
 

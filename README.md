@@ -14,6 +14,19 @@ bỏ chọn để dùng libx264 trên CPU. Video đầu ra là MP4 H.264, 30 FPS
 Bitrate mặc định 10 Mbps cho dung lượng khoảng 4,5 GB mỗi giờ; có thể chỉnh trực tiếp
 trên giao diện. Dung lượng thực tế có thể chênh lệch nhẹ do cấu trúc video và container.
 
+## Audio + Video minh họa
+
+Chạy `run_audio_full.bat` hoặc `python audio_full_tool.py`. Chức năng batch riêng này:
+
+- Đọc chính xác thời lượng từng audio lời thoại.
+- Đặt intro kênh ở đầu, sau đó loop video minh họa đến hết thời lượng audio.
+- Ghép lời thoại vào video và xuất tên có hậu tố `_FULL.mp4`.
+- Tái sử dụng một chu kỳ video minh họa cho toàn bộ batch để xử lý số lượng lớn.
+
+Để tự nhận intro theo kênh, đặt audio trong thư mục kênh, ví dụ
+`Audio/Kenh_A/tap_01.mp3`, và đặt `Kenh_A.mp4` trong thư mục intro. Nếu không tìm
+thấy intro theo tên thư mục cha hoặc tiền tố tên audio, tool dùng intro mặc định.
+
 Ứng dụng có hai giao diện: desktop Tkinter cho Windows và Streamlit. Cả hai tạo theo batch từ 1 đến 1.000 prompt tiếng Anh cho video background trừu tượng Google Veo qua API tương thích OpenAI của 9Router.
 
 ## Yêu cầu hệ thống
