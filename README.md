@@ -3,8 +3,13 @@
 ## Loop Video Suite (ban day du)
 
 Chạy `run_loop_video_suite.bat` hoặc `python loop_video_suite.py` để mở màn hình
-chính. Bản Suite giữ nguyên toàn bộ Mini Tool Loop Video cũ và bổ sung chức năng
-Audio + Video minh họa dưới dạng một mục riêng, không thay thế quy trình cũ.
+chính. Bản Suite mới dùng một cửa sổ duy nhất với hai tab `Loop Video` và
+`Audio + Video + Intro`. Toàn bộ chức năng cũ được giữ nguyên, tab mới không mở
+thêm cửa sổ hay tiến trình GUI riêng.
+
+Giao diện Mint Workspace có Light/Dark Mode và tự nhớ lựa chọn gần nhất tại
+`%APPDATA%\LoopVideoSuite\settings.json`. Chỉ một tab được phép mã hóa tại một
+thời điểm để tránh hai tác vụ tranh GPU, ổ đĩa và thư mục tạm.
 
 ## Mini Tool Loop Video
 
