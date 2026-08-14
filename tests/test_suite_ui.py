@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from loop_video_suite import AudioTab, SettingsStore, batch_percent, discover_audio_files, mint_theme, DARK, LIGHT
+from loop_video_suite import AudioTab, SettingsStore, batch_percent, classify_video_files, discover_audio_files, match_audio_videos, mint_theme, preview_log_lines, DARK, LIGHT
 from video_loop_tool import FFmpegLoopEngine
 
 
@@ -52,3 +52,46 @@ def test_batch_percentage_includes_current_item_fraction() -> None:
 def test_ffmpeg_progress_line_parser() -> None:
     assert FFmpegLoopEngine.parse_progress_line("out_time_us=5000000", 10) == 50
     assert FFmpegLoopEngine.parse_progress_line("frame=20", 10) is None
+
+
+def test_preview_log_contains_source_and_destination_paths() -> None:
+    videos = [Path("D:/media/scene-1.mp4"), Path("D:/media/scene-2.mp4")]
+    audio = Path("D:/audio/channel-a/story.mp3")
+    output = Path("D:/output/channel-a/story_FULL.mp4")
+
+    preview = "\n".join(preview_log_lines(videos, audio, output))
+
+    assert "2 files" in preview
+    assert str(videos[0]) in preview
+    assert str(videos[1]) in preview
+    assert str(audio) in preview
+    assert output.name in preview
+    assert str(output) in preview
+
+
+def test_video_classification_and_name_matching() -> None:
+    paths = [
+        Path("D:/video/K2-V10.mp4"),
+        Path("D:/video/K2-Intro.mp4"),
+        Path("D:/video/unused.mov"),
+    ]
+    illustrations, intros, duplicates = classify_video_files(paths)
+    audio = Path("D:/audio/K2/K2-v10.wav")
+
+    matches, missing_audio = match_audio_videos([audio], illustrations)
+
+    assert matches[audio] == paths[0]
+    assert intros["k2"] == paths[1]
+    assert paths[1] not in missing_audio
+    assert missing_audio == [paths[2]]
+    assert duplicates == []
+
+
+def test_duplicate_video_stem_uses_first_sorted_path() -> None:
+    first = Path("D:/a/story.mp4")
+    duplicate = Path("D:/b/STORY.mov")
+
+    illustrations, _intros, duplicates = classify_video_files([duplicate, first])
+
+    assert illustrations["story"] == first
+    assert duplicates == [("story", duplicate)]

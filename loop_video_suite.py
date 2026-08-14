@@ -409,10 +409,45 @@ def discover_audio_files(root: Path) -> list[Path]:
     return sorted(unique.values(), key=lambda path: str(path).casefold())
 
 
+def classify_video_files(paths: list[Path]) -> tuple[dict[str, Path], dict[str, Path], list[tuple[str, Path]]]:
+    illustrations: dict[str, Path] = {}
+    intros: dict[str, Path] = {}
+    duplicates: list[tuple[str, Path]] = []
+    for path in sorted(paths, key=lambda item: str(item).casefold()):
+        stem = path.stem.casefold()
+        if stem.endswith("-intro") and stem[:-6]:
+            intros.setdefault(stem[:-6], path)
+        elif stem in illustrations:
+            duplicates.append((stem, path))
+        else:
+            illustrations[stem] = path
+    return illustrations, intros, duplicates
+
+
+def match_audio_videos(audio_files: list[Path], illustrations: dict[str, Path]) -> tuple[dict[Path, Path], list[Path]]:
+    matches = {audio: illustrations[audio.stem.casefold()] for audio in audio_files if audio.stem.casefold() in illustrations}
+    used = {path.resolve() for path in matches.values()}
+    missing_audio = [path for path in illustrations.values() if path.resolve() not in used]
+    return matches, missing_audio
+
+
 def batch_percent(completed: int, failed: int, current_percent: float, total: int) -> float:
     if total <= 0:
         return 0.0
     return max(0.0, min(100.0, (completed + failed + current_percent / 100) / total * 100))
+
+
+def preview_log_lines(video_files: list[Path], audio: Path, output: Path) -> list[str]:
+    if len(video_files) == 1:
+        illustration = str(video_files[0])
+    else:
+        illustration = f"{len(video_files)} files: " + " | ".join(str(path) for path in video_files)
+    return [
+        f"MINH HỌA: {illustration}",
+        f"AUDIO: {audio}",
+        f"=> FILE PREVIEW: {output.name}",
+        f"=> ĐƯỜNG DẪN: {output}",
+    ]
 
 
 class EnhancedAudioTab(ProcessingTab):
@@ -422,6 +457,9 @@ class EnhancedAudioTab(ProcessingTab):
         super().__init__(master, app)
         self.audio_files: list[Path] = []
         self.video_files: list[Path] = []
+        self.video_matches: dict[Path, Path] = {}
+        self.auto_intros: dict[str, Path] = {}
+        self.video_duplicates: list[tuple[str, Path]] = []
         self.row_ids: dict[Path, str] = {}
         self.preview_data: dict[Path, tuple[float | None, Path | None]] = {}
         self.video_dir = tk.StringVar()
@@ -468,7 +506,7 @@ class EnhancedAudioTab(ProcessingTab):
         actions = ttk.Frame(right, style="Panel.TFrame"); actions.pack(fill="x", pady=(12, 8))
         ttk.Button(actions, text="+ Thêm audio", command=self._add_audio, bootstyle="success").pack(side="left", padx=(0, 7))
         ttk.Button(actions, text="Nạp thư mục + thư mục con", command=self._add_audio_folder, bootstyle="secondary-outline").pack(side="left", padx=7)
-        ttk.Button(actions, text="Làm mới intro", command=self._refresh_preview, bootstyle="info-outline").pack(side="left", padx=7)
+        ttk.Button(actions, text="Làm mới ghép cặp", command=self._refresh_pairing, bootstyle="info-outline").pack(side="left", padx=7)
         ttk.Button(actions, text="Xóa danh sách", command=self._clear, bootstyle="danger-outline").pack(side="left", padx=7)
 
         stats = ttk.Frame(right, style="Panel.TFrame"); stats.pack(fill="x", pady=(0, 8))
@@ -480,11 +518,11 @@ class EnhancedAudioTab(ProcessingTab):
             card.pack(side="left", fill="x", expand=True, padx=4)
             ttk.Label(card, textvariable=variable, font=("Segoe UI", 15, "bold")).pack()
 
-        columns = ("index", "name", "channel", "duration", "intro", "status", "percent")
+        columns = ("index", "name", "channel", "duration", "video", "intro", "status", "percent")
         table_wrap = ttk.Frame(right, style="Panel.TFrame"); table_wrap.pack(fill="both", expand=True)
         self.audio_tree = ttk.Treeview(table_wrap, columns=columns, show="headings", height=10, bootstyle="success")
-        headings = {"index": "STT", "name": "Audio", "channel": "Kênh / thư mục", "duration": "Thời lượng", "intro": "Intro đã khớp", "status": "Trạng thái", "percent": "%"}
-        widths = {"index": 48, "name": 230, "channel": 155, "duration": 85, "intro": 180, "status": 125, "percent": 55}
+        headings = {"index": "STT", "name": "Audio", "channel": "Kênh / thư mục", "duration": "Thời lượng", "video": "Video minh họa đã khớp", "intro": "Intro đã khớp", "status": "Trạng thái", "percent": "%"}
+        widths = {"index": 48, "name": 190, "channel": 120, "duration": 80, "video": 205, "intro": 155, "status": 110, "percent": 50}
         for column in columns:
             self.audio_tree.heading(column, text=headings[column]); self.audio_tree.column(column, width=widths[column], anchor="center" if column in {"index", "duration", "status", "percent"} else "w")
         scrollbar = ttk.Scrollbar(table_wrap, orient="vertical", command=self.audio_tree.yview, bootstyle="success-round")
@@ -530,7 +568,11 @@ class EnhancedAudioTab(ProcessingTab):
 
     def _choose_video_dir(self) -> None:
         value = filedialog.askdirectory(title="Chọn thư mục video minh họa")
-        if value: self.video_dir.set(value)
+        if value:
+            self.video_dir.set(value)
+            self._load_video_catalog()
+            self._rebuild_rows()
+            self._refresh_preview()
 
     def _choose_intro_dir(self) -> None:
         value = filedialog.askdirectory(title="Chọn thư mục intro theo kênh")
@@ -558,15 +600,16 @@ class EnhancedAudioTab(ProcessingTab):
             resolved = path.resolve()
             if resolved in known: continue
             self.audio_files.append(path); known.add(resolved)
-            row_id = self.audio_tree.insert("", "end", values=(len(self.audio_files), path.name, path.parent.name, "Đang đọc...", "Đang khớp...", "Đang chờ", "0%"))
-            self.row_ids[path] = row_id
+        self._load_video_catalog()
+        self._rebuild_rows()
         self._update_counts(0, 0)
         self.status.set(f"Đã chọn {len(self.audio_files)} audio")
         self._refresh_preview()
 
     def _intro_map(self) -> tuple[dict[str, Path], Path | None]:
         root = Path(self.intro_dir.get()) if self.intro_dir.get() else None
-        intros = {path.stem.casefold(): path for path in (root.rglob("*") if root and root.is_dir() else []) if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS}
+        intros = dict(self.auto_intros)
+        intros.update({path.stem.casefold(): path for path in (root.rglob("*") if root and root.is_dir() else []) if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS})
         default = Path(self.default_intro.get()) if self.default_intro.get() else None
         return intros, default if default and default.is_file() else None
 
@@ -576,6 +619,35 @@ class EnhancedAudioTab(ProcessingTab):
         if channel in intros: return intros[channel]
         matches = [(name, path) for name, path in intros.items() if audio.stem.casefold().startswith(name)]
         return max(matches, key=lambda item: len(item[0]))[1] if matches else default
+
+    def _load_video_catalog(self) -> None:
+        root = Path(self.video_dir.get()) if self.video_dir.get() else None
+        paths = [path for path in root.rglob("*") if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS] if root and root.is_dir() else []
+        illustrations, self.auto_intros, self.video_duplicates = classify_video_files(paths)
+        self.video_files = list(illustrations.values())
+        self.video_matches, _missing_audio = match_audio_videos(self.audio_files, illustrations)
+
+    def _refresh_pairing(self) -> None:
+        if self.is_running():
+            return
+        self._load_video_catalog()
+        self._rebuild_rows()
+        self._update_counts(0, 0)
+        self._refresh_preview()
+        self.status.set(f"Đã ghép {len(self.video_matches)}/{len(self.audio_files)} audio với video")
+
+    def _rebuild_rows(self) -> None:
+        for item in self.audio_tree.get_children():
+            self.audio_tree.delete(item)
+        self.row_ids.clear()
+        self.video_matches, missing_audio = match_audio_videos(self.audio_files, {path.stem.casefold(): path for path in self.video_files})
+        for index, audio in enumerate(self.audio_files, 1):
+            video = self.video_matches.get(audio)
+            status = "Đang chờ" if video else "Thiếu Video"
+            values = (index, audio.name, audio.parent.name, "Đang đọc...", video.name if video else "Thiếu Video", "Đang khớp...", status, "0%")
+            self.row_ids[audio] = self.audio_tree.insert("", "end", values=values)
+        for offset, video in enumerate(missing_audio, len(self.audio_files) + 1):
+            self.audio_tree.insert("", "end", values=(offset, "Thiếu Audio", video.parent.name, "—", video.name, "—", "Thiếu Audio", "—"))
 
     def _refresh_preview(self) -> None:
         if not self.audio_files or self.is_running(): return
@@ -593,7 +665,7 @@ class EnhancedAudioTab(ProcessingTab):
 
     def _clear(self) -> None:
         if self.is_running(): return
-        self.audio_files.clear(); self.row_ids.clear(); self.preview_data.clear()
+        self.audio_files.clear(); self.row_ids.clear(); self.preview_data.clear(); self.video_matches.clear()
         for item in self.audio_tree.get_children(): self.audio_tree.delete(item)
         self.current_progress.set(0); self.batch_progress.set(0); self._update_counts(0, 0)
 
@@ -605,9 +677,9 @@ class EnhancedAudioTab(ProcessingTab):
         if not row_id: return
         values = list(self.audio_tree.item(row_id, "values"))
         if duration is not None: values[3] = format_seconds(duration)
-        if intro is not ...: values[4] = intro.name if isinstance(intro, Path) else "Không có intro"
-        if status is not None: values[5] = status
-        if percent is not None: values[6] = f"{percent:.0f}%"
+        if intro is not ...: values[5] = intro.name if isinstance(intro, Path) else "Không có intro"
+        if status is not None: values[6] = status
+        if percent is not None: values[7] = f"{percent:.0f}%"
         self.audio_tree.item(row_id, values=values)
         self.audio_tree.see(row_id)
 
@@ -626,13 +698,14 @@ class EnhancedAudioTab(ProcessingTab):
             video_dir = Path(self.video_dir.get())
             if not self.audio_files: raise ValueError("Hãy chọn ít nhất một file audio.")
             if not video_dir.is_dir(): raise ValueError("Hãy chọn thư mục video minh họa.")
-            videos = sorted(path for path in video_dir.rglob("*") if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS)
-            if not videos: raise ValueError("Thư mục không có video minh họa hợp lệ.")
+            self._load_video_catalog(); self._rebuild_rows()
+            if not self.video_files: raise ValueError("Thư mục không có video minh họa hợp lệ. File *-Intro không được tính là video minh họa.")
+            if not self.video_matches: raise ValueError("Không có cặp Audio và Video minh họa nào trùng tên.")
             ffmpeg, ffprobe = find_ffmpeg_tools()
             if not ffmpeg or not ffprobe: raise ValueError("Không tìm thấy FFmpeg/ffprobe.")
         except (ValueError, tk.TclError) as error:
             self.app.release_job(self); messagebox.showwarning("Chưa thể bắt đầu", str(error)); return
-        self.video_files = videos; self.stop_event.clear(); self.start_button.configure(state="disabled")
+        self.stop_event.clear(); self.start_button.configure(state="disabled")
         self.completed_count.set(0); self.failed_count.set(0); self.active_audio = None; self._update_counts(0, 0)
         self.current_progress.set(0); self.batch_progress.set(0)
         log_dir = Path(os.environ.get("LOCALAPPDATA", tempfile.gettempdir())) / "LoopVideoSuite" / "logs"; log_dir.mkdir(parents=True, exist_ok=True)
@@ -651,34 +724,45 @@ class EnhancedAudioTab(ProcessingTab):
         completed = failed = 0
         try:
             with tempfile.TemporaryDirectory(prefix="audio_full_") as name:
-                temp = Path(name); cycle = temp / "illustration_cycle.mp4"
-                self.events.put(("readable", f"Bắt đầu batch: {len(self.audio_files)} audio, {len(self.video_files)} video minh họa"))
-                self.events.put(("status", "Đang tạo chu kỳ video minh họa"))
-                self.engine.set_progress_callback(lambda value: self.events.put(("stage_progress", value)))
-                (self.engine.make_single_cycle(self.video_files[0], cycle, fade) if len(self.video_files) == 1 else self.engine.make_multi_cycle(self.video_files, cycle, fade))
+                temp = Path(name)
+                self.events.put(("readable", f"Bắt đầu batch: {len(self.audio_files)} audio, {len(self.video_matches)} cặp hợp lệ"))
+                for stem, duplicate in self.video_duplicates:
+                    self.events.put(("readable", f"CẢNH BÁO: Bỏ qua video trùng tên '{stem}': {duplicate}"))
                 normalized: dict[Path, tuple[Path, float]] = {}
                 for index, audio in enumerate(self.audio_files, 1):
                     if self.stop_event.is_set(): raise InterruptedError("Đã dừng theo yêu cầu.")
                     self.events.put(("item_start", (audio, index, completed, failed)))
                     try:
+                        video = self.video_matches.get(audio)
+                        if not video:
+                            raise ValueError("Thiếu Video minh họa cùng tên")
+                        channel = output_dir / audio.parent.name
+                        output = channel / f"{audio.stem}_FULL.mp4"
+                        self.events.put(("readable", f"--- PREVIEW [{index}/{len(self.audio_files)}] ---"))
+                        for line in preview_log_lines([video], audio, output):
+                            self.events.put(("readable", line))
                         duration = self.engine.duration(audio); intro = self.find_intro(audio, intros, default)
                         self.events.put(("readable", f"[{index}/{len(self.audio_files)}] {audio.name} | Intro: {intro.name if intro else 'Không có intro'}"))
+                        cycle = temp / f"illustration_cycle_{index}.mp4"
+                        self.events.put(("item_stage", (audio, "Tạo loop video đã khớp")))
+                        self.engine.set_progress_callback(lambda value, a=audio: self.events.put(("item_progress", (a, value * .20))))
+                        self.engine.make_single_cycle(video, cycle, fade)
                         parts: list[Path] = []; intro_duration = 0.0
                         if intro:
                             self.events.put(("item_stage", (audio, "Chuẩn hóa intro")))
                             if intro not in normalized:
-                                target = temp / f"intro_{len(normalized)}.mp4"; self.engine.set_progress_callback(lambda value, a=audio: self.events.put(("item_progress", (a, value * .15))))
+                                target = temp / f"intro_{len(normalized)}.mp4"; self.engine.set_progress_callback(lambda value, a=audio: self.events.put(("item_progress", (a, 20 + value * .15))))
                                 normalized[intro] = (target, self.engine.normalize_intro(intro, target, self.engine.duration(intro)))
                             intro_file, intro_duration = normalized[intro]; intro_duration = min(intro_duration, duration); parts.append(intro_file)
                         remaining = max(0.0, duration - intro_duration)
                         if remaining > .02:
                             self.events.put(("item_stage", (audio, "Loop video minh họa"))); loop_part = temp / f"loop_{index}.mp4"
-                            self.engine.set_progress_callback(lambda value, a=audio: self.events.put(("item_progress", (a, 15 + value * .55))))
+                            self.engine.set_progress_callback(lambda value, a=audio: self.events.put(("item_progress", (a, 35 + value * .35))))
                             self.engine.repeat_cycle(cycle, loop_part, remaining); parts.append(loop_part)
                         visual = parts[0] if len(parts) == 1 else temp / f"visual_{index}.mp4"
                         if len(parts) > 1:
                             self.events.put(("item_stage", (audio, "Ghép intro và video"))); self.engine.concat_video_parts(parts, visual)
-                        channel = output_dir / audio.parent.name; channel.mkdir(parents=True, exist_ok=True); output = channel / f"{audio.stem}_FULL.mp4"
+                        channel.mkdir(parents=True, exist_ok=True)
                         self.events.put(("item_stage", (audio, "Ghép lời thoại"))); self.engine.set_progress_callback(lambda value, a=audio: self.events.put(("item_progress", (a, 70 + value * .30))))
                         self.engine.mux_narration(visual, audio, output, duration); completed += 1
                         self.events.put(("item_done", (audio, completed, failed, output)))
@@ -719,7 +803,7 @@ class EnhancedAudioTab(ProcessingTab):
                 elif kind == "item_done":
                     audio, completed, failed, output = value; self._set_row(audio, status="Hoàn tất", percent=100); self._append_log(f"HOÀN TẤT: {output}"); self.active_audio = None; self._update_counts(completed, failed); self.batch_progress.set(batch_percent(completed, failed, 0, len(self.audio_files)))
                 elif kind == "item_failed":
-                    audio, completed, failed, error = value; self._set_row(audio, status="Thất bại"); self._append_log(f"THẤT BẠI: {audio.name} | {error}"); self.active_audio = None; self._update_counts(completed, failed); self.batch_progress.set(batch_percent(completed, failed, 0, len(self.audio_files)))
+                    audio, completed, failed, error = value; self._set_row(audio, status="Thiếu Video" if error == "Thiếu Video minh họa cùng tên" else "Thất bại"); self._append_log(f"THẤT BẠI: {audio.name} | {error}"); self.active_audio = None; self._update_counts(completed, failed); self.batch_progress.set(batch_percent(completed, failed, 0, len(self.audio_files)))
                 elif kind == "done": self._finish("Hoàn tất"); self.batch_progress.set(100); self.batch_progress_text.set("Toàn batch: 100%"); messagebox.showinfo("Hoàn tất", f"Đã lưu kết quả tại:\n{value}")
                 elif kind == "stopped": self._finish("Đã dừng")
                 elif kind == "error": self._finish("Có lỗi"); messagebox.showerror("Lỗi xử lý", str(value))
