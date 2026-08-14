@@ -55,6 +55,7 @@ class FFmpegLoopEngine:
     def __init__(
         self, ffmpeg: str, ffprobe: str, log, stop_event: threading.Event,
         use_gpu: bool = True, bitrate_mbps: float = 10.0,
+        raw_log=None, progress=None,
     ) -> None:
         self.ffmpeg = ffmpeg
         self.ffprobe = ffprobe
@@ -62,6 +63,8 @@ class FFmpegLoopEngine:
         self.stop_event = stop_event
         self.use_gpu = use_gpu
         self.bitrate_mbps = bitrate_mbps
+        self.raw_log = raw_log or log
+        self.progress_callback = progress
         self.process: subprocess.Popen[str] | None = None
 
     def duration(self, path: Path) -> float:
@@ -75,8 +78,25 @@ class FFmpegLoopEngine:
             raise ValueError(f"Không đọc được thời lượng: {path.name}")
         return value
 
-    def _run(self, command: list[str]) -> None:
+    def set_progress_callback(self, callback) -> None:
+        self.progress_callback = callback
+
+    @staticmethod
+    def parse_progress_line(line: str, expected_duration: float | None) -> float | None:
+        if not expected_duration or expected_duration <= 0 or "=" not in line:
+            return None
+        key, value = line.strip().split("=", 1)
+        if key not in {"out_time_us", "out_time_ms"}:
+            return None
+        try:
+            seconds = int(value) / 1_000_000
+        except ValueError:
+            return None
+        return max(0.0, min(100.0, seconds / expected_duration * 100.0))
+
+    def _run(self, command: list[str], expected_duration: float | None = None) -> None:
         self.log(" ".join(f'\"{part}\"' if " " in part else part for part in command))
+        command = command[:-1] + ["-progress", "pipe:2", "-nostats", command[-1]]
         creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         self.process = subprocess.Popen(
             command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
@@ -90,12 +110,19 @@ class FFmpegLoopEngine:
                 self.process.wait(timeout=5)
                 raise InterruptedError("Đã dừng theo yêu cầu.")
             if line.strip():
-                tail.append(line.strip())
+                clean = line.strip()
+                self.raw_log(clean)
+                progress = self.parse_progress_line(clean, expected_duration)
+                if progress is not None and self.progress_callback:
+                    self.progress_callback(progress)
+                tail.append(clean)
                 tail = tail[-12:]
         code = self.process.wait()
         self.process = None
         if code != 0:
             raise RuntimeError("FFmpeg thất bại:\n" + "\n".join(tail))
+        if expected_duration and self.progress_callback:
+            self.progress_callback(100.0)
 
     def _video_options(self) -> list[str]:
         bitrate = max(1, round(self.bitrate_mbps * 1000))
@@ -130,7 +157,7 @@ class FFmpegLoopEngine:
             "[mid][blend]concat=n=2:v=1:a=0,format=yuv420p[outv]"
         )
         command = [self.ffmpeg, "-y", "-i", str(source), "-filter_complex", graph, "-map", "[outv]"]
-        self._run(command + self._video_options() + [str(destination)])
+        self._run(command + self._video_options() + [str(destination)], duration - fade)
         return duration - fade
 
     def make_multi_cycle(self, sources: list[Path], destination: Path, fade: float) -> float:
@@ -164,7 +191,7 @@ class FFmpegLoopEngine:
         for path in inputs:
             command += ["-i", str(path)]
         command += ["-filter_complex", ";".join(filters), "-map", "[outv]"]
-        self._run(command + self._video_options() + [str(destination)])
+        self._run(command + self._video_options() + [str(destination)], cycle_duration)
         return cycle_duration
 
     def repeat_cycle(self, cycle: Path, output: Path, target_seconds: int) -> None:
@@ -172,7 +199,7 @@ class FFmpegLoopEngine:
             self.ffmpeg, "-y", "-stream_loop", "-1", "-i", str(cycle),
             "-t", str(target_seconds), "-c", "copy", "-an", "-movflags", "+faststart", str(output),
         ]
-        self._run(command)
+        self._run(command, float(target_seconds))
 
     def normalize_intro(self, source: Path, destination: Path, max_duration: float) -> float:
         duration = min(self.duration(source), max_duration)
@@ -184,7 +211,7 @@ class FFmpegLoopEngine:
             self.ffmpeg, "-y", "-i", str(source), "-t", f"{duration:.3f}",
             "-filter_complex", graph, "-map", "[outv]",
         ]
-        self._run(command + self._video_options() + [str(destination)])
+        self._run(command + self._video_options() + [str(destination)], duration)
         return duration
 
     def concat_video_parts(self, parts: list[Path], destination: Path) -> None:
@@ -210,7 +237,7 @@ class FFmpegLoopEngine:
             "-c:a", "aac", "-b:a", "192k", "-shortest", "-t", f"{duration:.3f}",
             "-movflags", "+faststart", str(destination),
         ]
-        self._run(command)
+        self._run(command, duration)
 
     def stop(self) -> None:
         self.stop_event.set()

@@ -42,6 +42,21 @@ Chạy `run_audio_full.bat` hoặc `python audio_full_tool.py`. Chức năng bat
 `Audio/Kenh_A/tap_01.mp3`, và đặt `Kenh_A.mp4` trong thư mục intro. Nếu không tìm
 thấy intro theo tên thư mục cha hoặc tiền tố tên audio, tool dùng intro mặc định.
 
+### Batch audio số lượng lớn
+
+Trong tab `Audio + Video + Intro`, bấm `Nạp thư mục + thư mục con` và chọn thư
+mục gốc chứa toàn bộ audio. Tool quét đệ quy, loại file trùng và hiển thị trước
+thời lượng cùng intro đã khớp cho từng audio.
+
+Khi chạy, giao diện hiển thị `Tổng`, `Hoàn tất`, `Thất bại`, `Đang chờ`, phần
+trăm file hiện tại và phần trăm toàn batch. Khu vực `Tiến trình` chứa log dễ đọc;
+`FFmpeg Log` chứa log kỹ thuật trực tiếp và có thể lưu thành file UTF-8. Một
+audio lỗi được đánh dấu riêng, sau đó batch tiếp tục với audio kế tiếp.
+
+Không có giới hạn số file từ ứng dụng. Để ổn định GPU và ổ đĩa, tool xử lý tuần
+tự một đầu ra tại một thời điểm. Nên bảo đảm thư mục tạm và thư mục xuất còn đủ
+dung lượng trước khi chạy batch nhiều giờ.
+
 Ứng dụng có hai giao diện: desktop Tkinter cho Windows và Streamlit. Cả hai tạo theo batch từ 1 đến 1.000 prompt tiếng Anh cho video background trừu tượng Google Veo qua API tương thích OpenAI của 9Router.
 
 ## Yêu cầu hệ thống
