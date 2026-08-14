@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from loop_video_suite import AudioTab, SettingsStore, batch_percent, classify_audio_files, classify_video_files, discover_audio_files, find_channel_audio_intro, match_audio_videos, mint_theme, preview_log_lines, DARK, LIGHT
+from loop_video_suite import AudioTab, SettingsStore, batch_percent, classify_audio_files, classify_video_files, discover_audio_files, find_channel_audio_intro, match_audio_videos, mint_theme, needs_seamless_cycle, preview_log_lines, DARK, LIGHT
 from video_loop_tool import FFmpegLoopEngine
 
 
@@ -115,3 +115,10 @@ def test_recursive_discovery_excludes_audio_intro(tmp_path: Path) -> None:
     story.touch()
 
     assert discover_audio_files(tmp_path) == [story]
+
+
+def test_long_videos_use_fast_copy_path() -> None:
+    assert needs_seamless_cycle(6)
+    assert needs_seamless_cycle(60)
+    assert not needs_seamless_cycle(60.01)
+    assert not needs_seamless_cycle(5400)

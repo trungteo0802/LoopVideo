@@ -30,6 +30,8 @@ DARK = {
     "success": "#6DE2B1", "log": "#0B100D",
 }
 
+SHORT_LOOP_THRESHOLD_SECONDS = 60.0
+
 
 def mint_theme(name: str, colors: dict[str, str], mode: str) -> ThemeDefinition:
     return ThemeDefinition(
@@ -460,6 +462,10 @@ def batch_percent(completed: int, failed: int, current_percent: float, total: in
     return max(0.0, min(100.0, (completed + failed + current_percent / 100) / total * 100))
 
 
+def needs_seamless_cycle(video_duration: float, threshold: float = SHORT_LOOP_THRESHOLD_SECONDS) -> bool:
+    return video_duration <= threshold
+
+
 def preview_log_lines(video_files: list[Path], audio: Path, output: Path) -> list[str]:
     if len(video_files) == 1:
         illustration = str(video_files[0])
@@ -794,26 +800,39 @@ class EnhancedAudioTab(ProcessingTab):
                         self.events.put(("readable", f"AUDIO INTRO: {audio_intro if audio_intro else 'Không có'}"))
                         self.events.put(("readable", f"TỔNG THỜI LƯỢNG: {format_seconds(duration)}"))
                         self.events.put(("readable", f"[{index}/{len(self.audio_files)}] {audio.name} | Video intro: {intro.name if intro else 'Không có'}"))
-                        cycle = temp / f"illustration_cycle_{index}.mp4"
-                        self.events.put(("item_stage", (audio, "Tạo loop video đã khớp")))
-                        self.engine.set_progress_callback(lambda value, a=audio: self.events.put(("item_progress", (a, 10 + value * .20))))
-                        self.engine.make_single_cycle(video, cycle, fade)
+                        video_duration = self.engine.duration(video)
+                        visual_source = video
+                        if needs_seamless_cycle(video_duration):
+                            visual_source = temp / f"illustration_cycle_{index}.mp4"
+                            self.events.put(("readable", f"CHẾ ĐỘ VIDEO: Seamless short loop ({format_seconds(video_duration)})"))
+                            self.events.put(("item_stage", (audio, "Tạo seamless loop ngắn")))
+                            self.engine.set_progress_callback(lambda value, a=audio: self.events.put(("item_progress", (a, 10 + value * .25))))
+                            self.engine.make_single_cycle(video, visual_source, fade)
+                        else:
+                            self.events.put(("readable", f"CHẾ ĐỘ VIDEO: Fast copy, không mã hóa lại ({format_seconds(video_duration)})"))
+                        channel.mkdir(parents=True, exist_ok=True)
+                        if not intro:
+                            start_percent = 35 if visual_source != video else 10
+                            self.events.put(("item_stage", (audio, "Ghép nhanh video + audio")))
+                            self.engine.set_progress_callback(lambda value, a=audio, start=start_percent: self.events.put(("item_progress", (a, start + value * (100 - start) / 100))))
+                            self.engine.mux_looped_narration(visual_source, final_audio, output, duration)
+                            completed += 1
+                            self.events.put(("item_done", (audio, completed, failed, output)))
+                            continue
                         parts: list[Path] = []; intro_duration = 0.0
-                        if intro:
-                            self.events.put(("item_stage", (audio, "Chuẩn hóa intro")))
-                            if intro not in normalized:
-                                target = temp / f"intro_{len(normalized)}.mp4"; self.engine.set_progress_callback(lambda value, a=audio: self.events.put(("item_progress", (a, 30 + value * .10))))
-                                normalized[intro] = (target, self.engine.normalize_intro(intro, target, self.engine.duration(intro)))
-                            intro_file, intro_duration = normalized[intro]; intro_duration = min(intro_duration, duration); parts.append(intro_file)
+                        self.events.put(("item_stage", (audio, "Chuẩn hóa intro")))
+                        if intro not in normalized:
+                            target = temp / f"intro_{len(normalized)}.mp4"; self.engine.set_progress_callback(lambda value, a=audio: self.events.put(("item_progress", (a, 35 + value * .10))))
+                            normalized[intro] = (target, self.engine.normalize_intro(intro, target, self.engine.duration(intro)))
+                        intro_file, intro_duration = normalized[intro]; intro_duration = min(intro_duration, duration); parts.append(intro_file)
                         remaining = max(0.0, duration - intro_duration)
                         if remaining > .02:
                             self.events.put(("item_stage", (audio, "Loop video minh họa"))); loop_part = temp / f"loop_{index}.mp4"
-                            self.engine.set_progress_callback(lambda value, a=audio: self.events.put(("item_progress", (a, 40 + value * .30))))
-                            self.engine.repeat_cycle(cycle, loop_part, remaining); parts.append(loop_part)
+                            self.engine.set_progress_callback(lambda value, a=audio: self.events.put(("item_progress", (a, 45 + value * .25))))
+                            self.engine.repeat_cycle(visual_source, loop_part, remaining); parts.append(loop_part)
                         visual = parts[0] if len(parts) == 1 else temp / f"visual_{index}.mp4"
                         if len(parts) > 1:
                             self.events.put(("item_stage", (audio, "Ghép intro và video"))); self.engine.concat_video_parts(parts, visual)
-                        channel.mkdir(parents=True, exist_ok=True)
                         self.events.put(("item_stage", (audio, "Ghép lời thoại"))); self.engine.set_progress_callback(lambda value, a=audio: self.events.put(("item_progress", (a, 70 + value * .30))))
                         self.engine.mux_narration(visual, final_audio, output, duration); completed += 1
                         self.events.put(("item_done", (audio, completed, failed, output)))

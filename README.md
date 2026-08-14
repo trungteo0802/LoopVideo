@@ -66,6 +66,11 @@ sau đó loop video cùng tên với lời thoại đến đúng tổng thời l
 thoại. Ví dụ `K2-Intro.wav + K2-V10.wav + K2-V10.mp4` tạo ra
 `K2-V10_FULL.mp4`.
 
+Video minh họa dài trên 60 giây sử dụng chế độ `Fast copy`: tool không scale,
+không chạy hòa trộn và không mã hóa lại video, mà chỉ nối audio rồi copy luồng
+H.264 vào file cuối. Clip ngắn tối đa 60 giây vẫn được tạo seamless loop để
+tránh giật tại điểm lặp.
+
 Ứng dụng có hai giao diện: desktop Tkinter cho Windows và Streamlit. Cả hai tạo theo batch từ 1 đến 1.000 prompt tiếng Anh cho video background trừu tượng Google Veo qua API tương thích OpenAI của 9Router.
 
 ## Yêu cầu hệ thống

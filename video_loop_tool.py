@@ -260,6 +260,15 @@ class FFmpegLoopEngine:
         ]
         self._run(command, duration)
 
+    def mux_looped_narration(self, video: Path, audio: Path, destination: Path, duration: float) -> None:
+        command = [
+            self.ffmpeg, "-y", "-stream_loop", "-1", "-i", str(video), "-i", str(audio),
+            "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy",
+            "-c:a", "aac", "-b:a", "192k", "-shortest", "-t", f"{duration:.3f}",
+            "-movflags", "+faststart", str(destination),
+        ]
+        self._run(command, duration)
+
     def stop(self) -> None:
         self.stop_event.set()
         if self.process and self.process.poll() is None:
