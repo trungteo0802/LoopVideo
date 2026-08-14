@@ -230,6 +230,27 @@ class FFmpegLoopEngine:
         finally:
             list_file.unlink(missing_ok=True)
 
+    def concat_audio_parts(self, parts: list[Path], destination: Path, expected_duration: float) -> None:
+        if len(parts) < 2:
+            raise ValueError("Cần ít nhất hai file để nối audio.")
+        command = [self.ffmpeg, "-y"]
+        filters: list[str] = []
+        labels: list[str] = []
+        for index, path in enumerate(parts):
+            command += ["-i", str(path)]
+            label = f"a{index}"
+            labels.append(f"[{label}]")
+            filters.append(
+                f"[{index}:a:0]aresample=48000,"
+                f"aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[{label}]"
+            )
+        filters.append(f"{''.join(labels)}concat=n={len(parts)}:v=0:a=1[outa]")
+        command += [
+            "-filter_complex", ";".join(filters), "-map", "[outa]",
+            "-c:a", "aac", "-b:a", "192k", str(destination),
+        ]
+        self._run(command, expected_duration)
+
     def mux_narration(self, video: Path, audio: Path, destination: Path, duration: float) -> None:
         command = [
             self.ffmpeg, "-y", "-i", str(video), "-i", str(audio),

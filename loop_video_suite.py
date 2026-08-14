@@ -406,7 +406,30 @@ def discover_audio_files(root: Path) -> list[Path]:
     for path in root.rglob("*"):
         if path.is_file() and path.suffix.lower() in AUDIO_EXTENSIONS:
             unique.setdefault(path.resolve(), path)
-    return sorted(unique.values(), key=lambda path: str(path).casefold())
+    narrations, _intros = classify_audio_files(list(unique.values()))
+    return narrations
+
+
+def classify_audio_files(paths: list[Path]) -> tuple[list[Path], dict[str, Path]]:
+    narrations: list[Path] = []
+    intros: dict[str, Path] = {}
+    for path in sorted(paths, key=lambda item: str(item).casefold()):
+        stem = path.stem.casefold()
+        if stem.endswith("-intro") and stem[:-6]:
+            intros.setdefault(stem[:-6], path)
+        else:
+            narrations.append(path)
+    return narrations, intros
+
+
+def find_channel_audio_intro(audio: Path, intros: dict[str, Path]) -> Path | None:
+    for parent in audio.parents:
+        match = intros.get(parent.name.casefold())
+        if match:
+            return match
+    stem = audio.stem.casefold()
+    matches = [(name, path) for name, path in intros.items() if stem.startswith(name)]
+    return max(matches, key=lambda item: len(item[0]))[1] if matches else None
 
 
 def classify_video_files(paths: list[Path]) -> tuple[dict[str, Path], dict[str, Path], list[tuple[str, Path]]]:
@@ -460,6 +483,8 @@ class EnhancedAudioTab(ProcessingTab):
         self.video_matches: dict[Path, Path] = {}
         self.auto_intros: dict[str, Path] = {}
         self.video_duplicates: list[tuple[str, Path]] = []
+        self.audio_intros: dict[str, Path] = {}
+        self.audio_intro_matches: dict[Path, Path] = {}
         self.row_ids: dict[Path, str] = {}
         self.preview_data: dict[Path, tuple[float | None, Path | None]] = {}
         self.video_dir = tk.StringVar()
@@ -518,11 +543,11 @@ class EnhancedAudioTab(ProcessingTab):
             card.pack(side="left", fill="x", expand=True, padx=4)
             ttk.Label(card, textvariable=variable, font=("Segoe UI", 15, "bold")).pack()
 
-        columns = ("index", "name", "channel", "duration", "video", "intro", "status", "percent")
+        columns = ("index", "name", "channel", "duration", "video", "audio_intro", "intro", "status", "percent")
         table_wrap = ttk.Frame(right, style="Panel.TFrame"); table_wrap.pack(fill="both", expand=True)
         self.audio_tree = ttk.Treeview(table_wrap, columns=columns, show="headings", height=10, bootstyle="success")
-        headings = {"index": "STT", "name": "Audio", "channel": "Kênh / thư mục", "duration": "Thời lượng", "video": "Video minh họa đã khớp", "intro": "Intro đã khớp", "status": "Trạng thái", "percent": "%"}
-        widths = {"index": 48, "name": 190, "channel": 120, "duration": 80, "video": 205, "intro": 155, "status": 110, "percent": 50}
+        headings = {"index": "STT", "name": "Audio", "channel": "Kênh / thư mục", "duration": "Tổng thời lượng", "video": "Video minh họa đã khớp", "audio_intro": "Audio intro", "intro": "Video intro", "status": "Trạng thái", "percent": "%"}
+        widths = {"index": 42, "name": 165, "channel": 105, "duration": 90, "video": 180, "audio_intro": 130, "intro": 130, "status": 100, "percent": 45}
         for column in columns:
             self.audio_tree.heading(column, text=headings[column]); self.audio_tree.column(column, width=widths[column], anchor="center" if column in {"index", "duration", "status", "percent"} else "w")
         scrollbar = ttk.Scrollbar(table_wrap, orient="vertical", command=self.audio_tree.yview, bootstyle="success-round")
@@ -588,11 +613,19 @@ class EnhancedAudioTab(ProcessingTab):
 
     def _add_audio(self) -> None:
         values = filedialog.askopenfilenames(title="Chọn audio", filetypes=[("Audio", "*.mp3 *.wav *.m4a *.aac *.flac *.ogg *.opus")])
-        self._append_audio([Path(value) for value in values])
+        narrations, intros = classify_audio_files([Path(value) for value in values])
+        self.audio_intros.update(intros)
+        self._append_audio(narrations)
 
     def _add_audio_folder(self) -> None:
         value = filedialog.askdirectory(title="Chọn thư mục audio gốc")
-        if value: self._append_audio(discover_audio_files(Path(value)))
+        if value:
+            root = Path(value)
+            all_audio = [path for path in root.rglob("*") if path.is_file() and path.suffix.lower() in AUDIO_EXTENSIONS]
+            narrations, intros = classify_audio_files(all_audio)
+            self.audio_intros.update(intros)
+            self.video_dir.set(value)
+            self._append_audio(narrations)
 
     def _append_audio(self, paths: list[Path]) -> None:
         known = {path.resolve() for path in self.audio_files}
@@ -641,31 +674,36 @@ class EnhancedAudioTab(ProcessingTab):
             self.audio_tree.delete(item)
         self.row_ids.clear()
         self.video_matches, missing_audio = match_audio_videos(self.audio_files, {path.stem.casefold(): path for path in self.video_files})
+        self.audio_intro_matches = {audio: intro for audio in self.audio_files if (intro := find_channel_audio_intro(audio, self.audio_intros))}
         for index, audio in enumerate(self.audio_files, 1):
             video = self.video_matches.get(audio)
+            audio_intro = self.audio_intro_matches.get(audio)
             status = "Đang chờ" if video else "Thiếu Video"
-            values = (index, audio.name, audio.parent.name, "Đang đọc...", video.name if video else "Thiếu Video", "Đang khớp...", status, "0%")
+            values = (index, audio.name, audio.parent.name, "Đang đọc...", video.name if video else "Thiếu Video", audio_intro.name if audio_intro else "Không có", "Đang khớp...", status, "0%")
             self.row_ids[audio] = self.audio_tree.insert("", "end", values=values)
         for offset, video in enumerate(missing_audio, len(self.audio_files) + 1):
-            self.audio_tree.insert("", "end", values=(offset, "Thiếu Audio", video.parent.name, "—", video.name, "—", "Thiếu Audio", "—"))
+            self.audio_tree.insert("", "end", values=(offset, "Thiếu Audio", video.parent.name, "—", video.name, "—", "—", "Thiếu Audio", "—"))
 
     def _refresh_preview(self) -> None:
         if not self.audio_files or self.is_running(): return
         ffmpeg, ffprobe = find_ffmpeg_tools()
         if not ffprobe: return
-        intros, default = self._intro_map(); files = list(self.audio_files)
-        threading.Thread(target=self._preview_worker, args=(ffmpeg or "", ffprobe, files, intros, default), daemon=True).start()
+        intros, default = self._intro_map(); files = list(self.audio_files); audio_intros = dict(self.audio_intro_matches)
+        threading.Thread(target=self._preview_worker, args=(ffmpeg or "", ffprobe, files, intros, default, audio_intros), daemon=True).start()
 
-    def _preview_worker(self, ffmpeg: str, ffprobe: str, files: list[Path], intros: dict[str, Path], default: Path | None) -> None:
+    def _preview_worker(self, ffmpeg: str, ffprobe: str, files: list[Path], intros: dict[str, Path], default: Path | None, audio_intros: dict[Path, Path]) -> None:
         engine = FFmpegLoopEngine(ffmpeg, ffprobe, lambda _v: None, threading.Event(), False, 10)
         for audio in files:
-            try: duration = engine.duration(audio)
+            try:
+                duration = engine.duration(audio)
+                if audio in audio_intros:
+                    duration += engine.duration(audio_intros[audio])
             except Exception: duration = None
             self.events.put(("preview", (audio, duration, self.find_intro(audio, intros, default))))
 
     def _clear(self) -> None:
         if self.is_running(): return
-        self.audio_files.clear(); self.row_ids.clear(); self.preview_data.clear(); self.video_matches.clear()
+        self.audio_files.clear(); self.row_ids.clear(); self.preview_data.clear(); self.video_matches.clear(); self.audio_intros.clear(); self.audio_intro_matches.clear()
         for item in self.audio_tree.get_children(): self.audio_tree.delete(item)
         self.current_progress.set(0); self.batch_progress.set(0); self._update_counts(0, 0)
 
@@ -677,9 +715,9 @@ class EnhancedAudioTab(ProcessingTab):
         if not row_id: return
         values = list(self.audio_tree.item(row_id, "values"))
         if duration is not None: values[3] = format_seconds(duration)
-        if intro is not ...: values[5] = intro.name if isinstance(intro, Path) else "Không có intro"
-        if status is not None: values[6] = status
-        if percent is not None: values[7] = f"{percent:.0f}%"
+        if intro is not ...: values[6] = intro.name if isinstance(intro, Path) else "Không có intro"
+        if status is not None: values[7] = status
+        if percent is not None: values[8] = f"{percent:.0f}%"
         self.audio_tree.item(row_id, values=values)
         self.audio_tree.see(row_id)
 
@@ -741,30 +779,43 @@ class EnhancedAudioTab(ProcessingTab):
                         self.events.put(("readable", f"--- PREVIEW [{index}/{len(self.audio_files)}] ---"))
                         for line in preview_log_lines([video], audio, output):
                             self.events.put(("readable", line))
-                        duration = self.engine.duration(audio); intro = self.find_intro(audio, intros, default)
-                        self.events.put(("readable", f"[{index}/{len(self.audio_files)}] {audio.name} | Intro: {intro.name if intro else 'Không có intro'}"))
+                        narration_duration = self.engine.duration(audio)
+                        audio_intro = self.audio_intro_matches.get(audio)
+                        final_audio = audio
+                        duration = narration_duration
+                        if audio_intro:
+                            audio_intro_duration = self.engine.duration(audio_intro)
+                            duration += audio_intro_duration
+                            final_audio = temp / f"combined_audio_{index}.m4a"
+                            self.events.put(("item_stage", (audio, "Nối audio intro")))
+                            self.engine.set_progress_callback(lambda value, a=audio: self.events.put(("item_progress", (a, value * .10))))
+                            self.engine.concat_audio_parts([audio_intro, audio], final_audio, duration)
+                        intro = self.find_intro(audio, intros, default)
+                        self.events.put(("readable", f"AUDIO INTRO: {audio_intro if audio_intro else 'Không có'}"))
+                        self.events.put(("readable", f"TỔNG THỜI LƯỢNG: {format_seconds(duration)}"))
+                        self.events.put(("readable", f"[{index}/{len(self.audio_files)}] {audio.name} | Video intro: {intro.name if intro else 'Không có'}"))
                         cycle = temp / f"illustration_cycle_{index}.mp4"
                         self.events.put(("item_stage", (audio, "Tạo loop video đã khớp")))
-                        self.engine.set_progress_callback(lambda value, a=audio: self.events.put(("item_progress", (a, value * .20))))
+                        self.engine.set_progress_callback(lambda value, a=audio: self.events.put(("item_progress", (a, 10 + value * .20))))
                         self.engine.make_single_cycle(video, cycle, fade)
                         parts: list[Path] = []; intro_duration = 0.0
                         if intro:
                             self.events.put(("item_stage", (audio, "Chuẩn hóa intro")))
                             if intro not in normalized:
-                                target = temp / f"intro_{len(normalized)}.mp4"; self.engine.set_progress_callback(lambda value, a=audio: self.events.put(("item_progress", (a, 20 + value * .15))))
+                                target = temp / f"intro_{len(normalized)}.mp4"; self.engine.set_progress_callback(lambda value, a=audio: self.events.put(("item_progress", (a, 30 + value * .10))))
                                 normalized[intro] = (target, self.engine.normalize_intro(intro, target, self.engine.duration(intro)))
                             intro_file, intro_duration = normalized[intro]; intro_duration = min(intro_duration, duration); parts.append(intro_file)
                         remaining = max(0.0, duration - intro_duration)
                         if remaining > .02:
                             self.events.put(("item_stage", (audio, "Loop video minh họa"))); loop_part = temp / f"loop_{index}.mp4"
-                            self.engine.set_progress_callback(lambda value, a=audio: self.events.put(("item_progress", (a, 35 + value * .35))))
+                            self.engine.set_progress_callback(lambda value, a=audio: self.events.put(("item_progress", (a, 40 + value * .30))))
                             self.engine.repeat_cycle(cycle, loop_part, remaining); parts.append(loop_part)
                         visual = parts[0] if len(parts) == 1 else temp / f"visual_{index}.mp4"
                         if len(parts) > 1:
                             self.events.put(("item_stage", (audio, "Ghép intro và video"))); self.engine.concat_video_parts(parts, visual)
                         channel.mkdir(parents=True, exist_ok=True)
                         self.events.put(("item_stage", (audio, "Ghép lời thoại"))); self.engine.set_progress_callback(lambda value, a=audio: self.events.put(("item_progress", (a, 70 + value * .30))))
-                        self.engine.mux_narration(visual, audio, output, duration); completed += 1
+                        self.engine.mux_narration(visual, final_audio, output, duration); completed += 1
                         self.events.put(("item_done", (audio, completed, failed, output)))
                         if remaining > .02: loop_part.unlink(missing_ok=True)
                         if visual.parent == temp and visual.name.startswith("visual_"): visual.unlink(missing_ok=True)

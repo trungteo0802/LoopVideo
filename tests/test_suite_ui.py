@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from loop_video_suite import AudioTab, SettingsStore, batch_percent, classify_video_files, discover_audio_files, match_audio_videos, mint_theme, preview_log_lines, DARK, LIGHT
+from loop_video_suite import AudioTab, SettingsStore, batch_percent, classify_audio_files, classify_video_files, discover_audio_files, find_channel_audio_intro, match_audio_videos, mint_theme, preview_log_lines, DARK, LIGHT
 from video_loop_tool import FFmpegLoopEngine
 
 
@@ -95,3 +95,23 @@ def test_duplicate_video_stem_uses_first_sorted_path() -> None:
 
     assert illustrations["story"] == first
     assert duplicates == [("story", duplicate)]
+
+
+def test_audio_intro_is_excluded_and_matches_ancestor_channel() -> None:
+    channel_intro = Path("D:/TruyenTL/K2/K2-Intro.wav")
+    narration = Path("D:/TruyenTL/K2/K2-V10/K2-V10.wav")
+
+    narrations, intros = classify_audio_files([narration, channel_intro])
+
+    assert narrations == [narration]
+    assert intros == {"k2": channel_intro}
+    assert find_channel_audio_intro(narration, intros) == channel_intro
+
+
+def test_recursive_discovery_excludes_audio_intro(tmp_path: Path) -> None:
+    (tmp_path / "K2-Intro.wav").touch()
+    story = tmp_path / "K2-V10" / "K2-V10.wav"
+    story.parent.mkdir()
+    story.touch()
+
+    assert discover_audio_files(tmp_path) == [story]

@@ -57,6 +57,15 @@ Không có giới hạn số file từ ứng dụng. Để ổn định GPU và 
 tự một đầu ra tại một thời điểm. Nên bảo đảm thư mục tạm và thư mục xuất còn đủ
 dung lượng trước khi chạy batch nhiều giờ.
 
+### Audio intro theo kênh
+
+Khi nạp một thư mục gốc, tool tự quét cả audio và video minh họa trong mọi thư
+mục con. File audio có tên `<Kênh>-Intro`, ví dụ `K2-Intro.wav`, không được xem
+là một lời thoại riêng. Tool tự nối intro đó vào đầu mọi audio thuộc kênh `K2`,
+sau đó loop video cùng tên với lời thoại đến đúng tổng thời lượng intro + lời
+thoại. Ví dụ `K2-Intro.wav + K2-V10.wav + K2-V10.mp4` tạo ra
+`K2-V10_FULL.mp4`.
+
 Ứng dụng có hai giao diện: desktop Tkinter cho Windows và Streamlit. Cả hai tạo theo batch từ 1 đến 1.000 prompt tiếng Anh cho video background trừu tượng Google Veo qua API tương thích OpenAI của 9Router.
 
 ## Yêu cầu hệ thống
